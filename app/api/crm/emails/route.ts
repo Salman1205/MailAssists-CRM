@@ -26,18 +26,37 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Always fetch the full set from MySQL (this ensures we show all unassigned messages)
-    // and then cache the results in Supabase for faster subsequent access.
-    console.log('Fetching emails from MySQL CRM database (primary source)...');
-    const mysqlEmails = await fetchUnassignedEmails();
+    let emails: any[] = [];
+    let fromCache = false;
 
-    // Cache in background (don't block response)
-    cacheEmails(mysqlEmails).catch((err) => {
-      console.error('Background cache error:', err);
-    });
-
-    const emails = mysqlEmails;
-    const fromCache = false;
+    // Try to fetch from MySQL first
+    try {
+      console.log('Fetching emails from MySQL CRM database (primary source)...');
+      emails = await fetchUnassignedEmails();
+      
+      // Cache in background (don't block response)
+      cacheEmails(emails).catch((err) => {
+        console.error('Background cache error:', err);
+      });
+    } catch (mysqlError) {
+      console.warn('MySQL fetch failed, trying Supabase cache:', mysqlError instanceof Error ? mysqlError.message : 'Unknown error');
+      
+      // Fallback to Supabase cache if MySQL fails
+      try {
+        const cached = await getCachedEmails();
+        if (cached && cached.length > 0) {
+          emails = cached;
+          fromCache = true;
+          console.log('Using cached emails from Supabase');
+        } else {
+          console.log('No cached emails available');
+          emails = [];
+        }
+      } catch (cacheError) {
+        console.error('Supabase cache also failed:', cacheError instanceof Error ? cacheError.message : 'Unknown error');
+        emails = [];
+      }
+    }
 
     return NextResponse.json({
       success: true,
