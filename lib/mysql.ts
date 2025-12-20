@@ -10,11 +10,10 @@ import mysql from 'mysql2/promise';
 
 let pool: mysql.Pool | null = null;
 
-// Check if MySQL should be enabled
+// Check if MySQL should be enabled (only in local development with VPN)
 function isMySQLEnabled(): boolean {
-  // Only disable if MYSQL_HOST is not set
-  // MySQL will work on Vercel if RDS security group allows Vercel's IP ranges
-  if (!process.env.MYSQL_HOST) {
+  // Disable MySQL on Vercel or if MYSQL_HOST is not set
+  if (process.env.VERCEL || !process.env.MYSQL_HOST) {
     return false;
   }
   return true;
@@ -48,7 +47,7 @@ export function getMySQLConnection(): mysql.Pool {
 export async function testMySQLConnection(): Promise<boolean> {
   try {
     if (!isMySQLEnabled()) {
-      console.log('MySQL is disabled (MYSQL_HOST not set)');
+      console.log('MySQL is disabled in this environment (Vercel or no VPN)');
       return false;
     }
     const connection = getMySQLConnection();
