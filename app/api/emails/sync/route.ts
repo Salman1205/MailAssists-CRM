@@ -22,10 +22,6 @@ async function setSyncState(state: SyncState) {
 
 export async function POST(request: NextRequest) {
   try {
-    return NextResponse.json(
-      { error: 'Gmail sync disabled in CRM read-only mode' },
-      { status: 501 }
-    );
     // Load and refresh tokens if needed
     const tokens = await getValidTokens();
     
@@ -371,21 +367,6 @@ async function processEmailsInBackground(emails: any[], startedAt: number) {
  */
 export async function GET() {
   try {
-    return NextResponse.json({
-      totalStored: 0,
-      sentWithEmbeddings: 0,
-      completedReplies: 0,
-      pendingReplies: 0,
-      processing: false,
-      queued: 0,
-      processed: 0,
-      errors: 0,
-      startedAt: null,
-      finishedAt: null,
-      lastSync: null,
-      disabled: true,
-      message: 'Gmail sync disabled in CRM read-only mode'
-    });
     const userEmail = await getCurrentUserEmail();
     
     // OPTIMIZED: Use lightweight count query instead of loading all emails
