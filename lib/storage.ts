@@ -680,7 +680,10 @@ export async function clearAllData() {
   for (const table of tables) {
     const { error } = await supabase.from(table).delete().eq('user_email', userEmail);
     if (error) {
-      console.error(`Error clearing table ${table} in Supabase:`, error);
+      // Skip silently if table doesn't exist (PGRST205)
+      if (error.code !== 'PGRST205') {
+        console.error(`Error clearing table ${table} in Supabase:`, error);
+      }
     }
   }
 }
@@ -732,6 +735,12 @@ export async function loadSyncState(): Promise<SyncState> {
   const { data, error } = await query.limit(1).maybeSingle();
 
   if (error) {
+    // PGRST205: table doesn't exist in schema cache (not yet created in Supabase)
+    // Return default state gracefully instead of erroring out
+    if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+      console.warn('sync_state table not yet created in Supabase; using default state');
+      return { ...defaultSyncState };
+    }
     console.error('Error loading sync state from Supabase:', error);
     return { ...defaultSyncState };
   }
@@ -761,40 +770,56 @@ export async function saveSyncState(state: SyncState) {
     return;
   }
 
-  const { data, error } = await supabase
-    .from('sync_state')
-    .select('id')
-    .eq('user_email', userEmail)
-    .limit(1)
-    .maybeSingle();
-
-  const payload = {
-    user_email: userEmail,
-    status: state.status,
-    queued: state.queued,
-    processed: state.processed,
-    errors: state.errors,
-    started_at: state.startedAt ? new Date(state.startedAt).toISOString() : null,
-    finished_at: state.finishedAt ? new Date(state.finishedAt).toISOString() : null,
-  };
-
-  if (data && data.id) {
-    const { error: updateError } = await supabase
+  try {
+    const { data, error } = await supabase
       .from('sync_state')
-      .update(payload)
-      .eq('id', data.id);
+      .select('id')
+      .eq('user_email', userEmail)
+      .limit(1)
+      .maybeSingle();
 
-    if (updateError) {
-      console.error('Error updating sync state in Supabase:', updateError);
+    // Skip if table doesn't exist (PGRST205)
+    if (error?.code === 'PGRST205' || error?.message?.includes('Could not find the table')) {
+      console.warn('sync_state table not yet created in Supabase; skipping save');
+      return;
     }
-  } else {
-    const { error: insertError } = await supabase
-      .from('sync_state')
-      .insert(payload);
 
-    if (insertError) {
-      console.error('Error inserting sync state in Supabase:', insertError);
+    const payload = {
+      user_email: userEmail,
+      status: state.status,
+      queued: state.queued,
+      processed: state.processed,
+      errors: state.errors,
+      started_at: state.startedAt ? new Date(state.startedAt).toISOString() : null,
+      finished_at: state.finishedAt ? new Date(state.finishedAt).toISOString() : null,
+    };
+
+    if (data && data.id) {
+      const { error: updateError } = await supabase
+        .from('sync_state')
+        .update(payload)
+        .eq('id', data.id);
+
+      if (updateError) {
+        // Skip silently if table doesn't exist
+        if (updateError.code !== 'PGRST205') {
+          console.error('Error updating sync state in Supabase:', updateError);
+        }
+      }
+    } else {
+      const { error: insertError } = await supabase
+        .from('sync_state')
+        .insert(payload);
+
+      if (insertError) {
+        // Skip silently if table doesn't exist
+        if (insertError.code !== 'PGRST205') {
+          console.error('Error inserting sync state in Supabase:', insertError);
+        }
+      }
     }
+  } catch (err) {
+    console.warn('Error saving sync state (table may not exist yet):', err);
   }
 }
 
