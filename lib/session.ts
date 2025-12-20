@@ -9,6 +9,8 @@ import { validateSession } from './auth';
 
 const SESSION_TOKEN_COOKIE_NAME = 'session_token';
 const CURRENT_USER_ID_COOKIE_NAME = 'current_user_id';
+// Legacy shim for Gmail-based multi-user scoping
+const SESSION_USER_EMAIL_COOKIE_NAME = 'session_user_email';
 
 /**
  * Get the current session token from cookies
@@ -61,17 +63,63 @@ export async function getSessionUserFromRequest(request: NextRequest) {
  */
 export function getSessionUserEmailFromRequest(request: NextRequest): string | null {
   try {
-    const token = getSessionTokenFromRequest(request);
-    if (!token) return null;
-    // Note: validateSession returns a simple AuthUser in dev
-    // We intentionally do not await here to keep this helper synchronous-friendly.
-    // Callers that need strong guarantees should use getSessionUserFromRequest.
-    // Since we cannot use async here, provide a best-effort shim.
-    // Consumers of this helper generally only gate access.
-    return null; // Prefer callers to switch to getSessionUserFromRequest.
+    return request.cookies.get(SESSION_USER_EMAIL_COOKIE_NAME)?.value || null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Get session user email from server cookies (async because cookies() is async)
+ */
+export async function getSessionUserEmail(): Promise<string | null> {
+  try {
+    const cookieStore = await cookies();
+    return cookieStore.get(SESSION_USER_EMAIL_COOKIE_NAME)?.value || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Set session user email cookie (server context)
+ */
+export async function setSessionUserEmail(email: string): Promise<void> {
+  try {
+    const cookieStore = await cookies();
+    const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+    cookieStore.set(SESSION_USER_EMAIL_COOKIE_NAME, email, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      path: '/',
+    });
+  } catch (error) {
+    console.error('Error setting session user email cookie:', error);
+  }
+}
+
+/**
+ * Set session user email on a NextResponse (API route flow)
+ */
+export function setSessionUserEmailInResponse(
+  response: NextResponse,
+  email: string
+): NextResponse {
+  try {
+    const isProduction = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+    response.cookies.set(SESSION_USER_EMAIL_COOKIE_NAME, email, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      path: '/',
+    });
+  } catch (error) {
+    console.error('Error setting session user email in response:', error);
+  }
+  return response;
 }
 
 /**
