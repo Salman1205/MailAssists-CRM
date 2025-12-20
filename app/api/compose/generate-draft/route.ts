@@ -1,0 +1,72 @@
+/**
+ * Generate AI draft for new email composition
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { generateNewEmailDraft } from '@/lib/ai-draft';
+import { getCurrentUserIdFromRequest } from '@/lib/permissions';
+import { loadStoredEmails } from '@/lib/storage';
+import { listKnowledge } from '@/lib/knowledge';
+import { getGuardrails } from '@/lib/guardrails';
+import { getGroqApiKey } from '@/lib/ai-draft';
+
+export async function POST(request: NextRequest) {
+  try {
+    const userId = getCurrentUserIdFromRequest(request);
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Not authenticated' },
+        { status: 401 }
+      );
+    }
+
+
+    const body = await request.json();
+    const { recipientEmail, recipientName, subject, context } = body;
+
+    if (!recipientEmail || !subject || !context) {
+      return NextResponse.json(
+        { error: 'Missing required fields: recipientEmail, subject, context' },
+        { status: 400 }
+      );
+    }
+
+    // Load required data
+    const [pastEmails, knowledgeItems, guardrails, groqApiKey] = await Promise.all([
+      loadStoredEmails(),
+      listKnowledge(null),
+      getGuardrails(null),
+      getGroqApiKey(),
+    ]);
+
+    if (!groqApiKey) {
+      return NextResponse.json(
+        { error: 'Groq API key not configured' },
+        { status: 500 }
+      );
+    }
+
+    // Generate AI draft for new email
+    const draft = await generateNewEmailDraft(
+      recipientEmail,
+      recipientName || null,
+      subject,
+      context,
+      pastEmails,
+      groqApiKey,
+      knowledgeItems,
+      guardrails,
+      {
+        userId,
+      }
+    );
+
+    return NextResponse.json({ draft });
+  } catch (error) {
+    console.error('Error generating draft:', error);
+    return NextResponse.json(
+      { error: 'Failed to generate draft', details: (error as Error).message },
+      { status: 500 }
+    );
+  }
+}

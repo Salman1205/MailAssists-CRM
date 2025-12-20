@@ -1,0 +1,606 @@
+import { supabase } from './supabase';
+
+export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'closed';
+export type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
+
+export interface Ticket {
+  id: string;
+  threadId: string;
+  crmMessageId?: number | null; // Maps to CRM message_received.id
+  clientId?: number | null; // Maps to CRM clientid
+  customerEmail: string;
+  customerName?: string | null;
+  subject: string;
+  status: TicketStatus;
+  priority?: TicketPriority | null;
+  assignee?: string | null; // Legacy field (deprecated)
+  assigneeUserId?: string | null;
+  assigneeName?: string | null;
+  tags: string[];
+  lastCustomerReplyAt?: string | null;
+  lastAgentReplyAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TicketSeed {
+  subject: string;
+  customerEmail: string;
+  customerName?: string | null;
+  initialStatus?: TicketStatus;
+  priority?: TicketPriority;
+  tags?: string[];
+  lastCustomerReplyAt?: string;
+  lastAgentReplyAt?: string;
+  crmMessageId?: number;
+  clientId?: number;
+}
+
+// Lightweight email shape used when creating/updating tickets
+export interface TicketEmailLike {
+  id: string;
+  threadId?: string;
+  subject: string;
+  from: string;
+  to: string;
+  date: string;
+  crmMessageId?: number;
+  clientId?: number;
+}
+
+function mapRowToTicket(row: any): Ticket {
+  return {
+    id: row.id,
+    threadId: row.thread_id,
+    crmMessageId: row.crm_message_id || null,
+    clientId: row.client_id || null,
+    customerEmail: row.customer_email,
+    customerName: row.customer_name,
+    subject: row.subject,
+    status: (row.status || 'open') as TicketStatus,
+    priority: (row.priority || null) as TicketPriority | null,
+    assignee: row.assignee,
+    assigneeUserId: row.assignee_user_id || null,
+    assigneeName: row.assignee_name || null,
+    tags: row.tags || [],
+    lastCustomerReplyAt: row.last_customer_reply_at,
+    lastAgentReplyAt: row.last_agent_reply_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getTicketByThreadId(
+  threadId: string
+): Promise<Ticket | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('tickets')
+    .select('*')
+    .eq('thread_id', threadId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error fetching ticket by thread_id:', error);
+    return null;
+  }
+
+  if (!data) return null;
+
+  return mapRowToTicket(data);
+}
+
+export async function getTicketByCrmMessageId(
+  crmMessageId: number
+): Promise<Ticket | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('tickets')
+    .select('*')
+    .eq('crm_message_id', crmMessageId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error fetching ticket by crm_message_id:', error);
+    return null;
+  }
+
+  if (!data) return null;
+
+  return mapRowToTicket(data);
+}
+
+export async function getOrCreateTicketForThread(
+  threadId: string,
+  seed: TicketSeed
+): Promise<Ticket | null> {
+  if (!supabase) return null;
+
+  // 1) Check if ticket already exists
+  const existing = await getTicketByThreadId(threadId);
+  if (existing) {
+    return existing;
+  }
+
+  const nowIso = new Date().toISOString();
+
+  const payload: any = {
+    thread_id: threadId,
+    crm_message_id: seed.crmMessageId ?? null,
+    client_id: seed.clientId ?? null,
+    customer_email: seed.customerEmail,
+    customer_name: seed.customerName ?? null,
+    subject: seed.subject,
+    status: seed.initialStatus ?? 'open',
+    priority: seed.priority ?? null,
+    assignee: null,
+    assignee_user_id: null,
+    tags: seed.tags ?? [],
+    last_customer_reply_at: seed.lastCustomerReplyAt ?? null,
+    last_agent_reply_at: seed.lastAgentReplyAt ?? null,
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+
+  const { data, error } = await supabase
+    .from('tickets')
+    .insert(payload)
+    .select('*')
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error creating ticket:', error);
+    console.error('Ticket payload:', payload);
+    return null;
+  }
+
+  if (!data) {
+    console.warn('No data returned when creating ticket for thread:', threadId);
+    return null;
+  }
+
+  console.log(`[Ticket] Successfully created ticket ${data.id} for thread ${threadId}`);
+  return mapRowToTicket(data);
+}
+
+/**
+ * Ensure there is a ticket row for a given email, and update
+ * last_customer_reply_at / last_agent_reply_at based on who sent it.
+ *
+ * isFromAgent:
+ * - true  => update last_agent_reply_at, set status to 'pending' (or keep if closed/on_hold)
+ * - false => update last_customer_reply_at, set status to 'open'
+ */
+export async function ensureTicketForEmail(
+  email: TicketEmailLike,
+  isFromAgent: boolean
+): Promise<Ticket | null> {
+  if (!supabase) return null;
+
+  const threadId = email.threadId || email.id;
+  const dateIso = new Date(email.date).toISOString();
+
+  // Guess customer email based on direction
+  const customerEmail = isFromAgent ? email.to : email.from;
+
+  // Try to find existing ticket
+  let ticket = await getTicketByThreadId(threadId);
+
+  if (!ticket) {
+    // Create new ticket using this email as seed
+    ticket = await getOrCreateTicketForThread(threadId, {
+      subject: email.subject,
+      customerEmail,
+      customerName: null,
+      initialStatus: isFromAgent ? 'pending' : 'open',
+      priority: null,
+      tags: [],
+      lastCustomerReplyAt: isFromAgent ? undefined : dateIso,
+      lastAgentReplyAt: isFromAgent ? dateIso : undefined,
+      crmMessageId: email.crmMessageId,
+      clientId: email.clientId,
+    })!;
+    if (ticket) {
+      console.log(`[Ticket] Created ticket ${ticket.id} for email ${email.id}`, {
+        threadId,
+        crmMessageId: email.crmMessageId,
+        clientId: email.clientId,
+        lastCustomerReplyAt: ticket.lastCustomerReplyAt,
+        createdAt: ticket.createdAt,
+        dateIso
+      });
+    }
+    return ticket;
+  }
+
+  // Update existing ticket
+  const updates: any = {
+    updated_at: dateIso,
+  };
+
+  if (isFromAgent) {
+    updates.last_agent_reply_at = dateIso;
+
+    // Only bump to pending if ticket is not closed or on hold
+    if (ticket.status === 'open' || ticket.status === 'pending') {
+      updates.status = 'pending';
+    }
+  } else {
+    updates.last_customer_reply_at = dateIso;
+    updates.status = 'open';
+  }
+
+  const { data, error } = await supabase
+    .from('tickets')
+    .update(updates)
+    .eq('thread_id', threadId)
+    .select('*')
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error updating ticket timestamps:', error);
+    return ticket;
+  }
+
+  if (!data) return ticket;
+
+  const updatedTicket = mapRowToTicket(data);
+
+  return updatedTicket;
+}
+
+/**
+ * Get tickets with role-based filtering
+ * - Agents: see only their own tickets + unassigned tickets
+ * - Admin/Manager: see all tickets
+ */
+export async function getTickets(
+  currentUserId: string | null,
+  canViewAll: boolean
+): Promise<Ticket[]> {
+  if (!supabase) return [];
+
+  // OPTIMIZED: Use JOIN to fetch assignee names in a single query
+  let query = supabase
+    .from('tickets')
+    .select(`
+      *,
+      assignee:users!tickets_assignee_user_id_fkey(id, name)
+    `);
+
+  // Role-based filtering
+  if (!canViewAll && currentUserId) {
+    // Agent: only see own tickets + unassigned
+    query = query.or(`assignee_user_id.eq.${currentUserId},assignee_user_id.is.null`);
+  }
+  // Admin/Manager: see all (no additional filter)
+
+  // Order by last_customer_reply_at ascending (oldest customer-waiting first)
+  query = query.order('last_customer_reply_at', { ascending: true, nullsFirst: false });
+
+  // OPTIMIZED: Add limit to prevent fetching too many tickets at once
+  query = query.limit(500);
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error fetching tickets:', error);
+    // Fallback to simple query if JOIN fails (backward compatibility)
+    return getTicketsFallback(currentUserId, canViewAll);
+  }
+
+  if (!data) return [];
+
+  // Map rows to tickets, extracting assignee name from JOIN
+  return data.map((row: any) => {
+    const ticket = mapRowToTicket(row);
+    // Extract assignee name from joined users table
+    if (row.assignee && Array.isArray(row.assignee) && row.assignee.length > 0) {
+      ticket.assigneeName = row.assignee[0].name || null;
+    } else if (row.assignee && typeof row.assignee === 'object' && row.assignee.name) {
+      ticket.assigneeName = row.assignee.name;
+    }
+    return ticket;
+  });
+}
+
+// Fallback method if JOIN fails (backward compatibility)
+async function getTicketsFallback(
+  currentUserId: string | null,
+  canViewAll: boolean
+): Promise<Ticket[]> {
+  if (!supabase) return [];
+
+  let query = supabase
+    .from('tickets')
+    .select('*');
+
+  // No user_email scoping in CRM mode; scope by assignee only
+
+  if (!canViewAll && currentUserId) {
+    query = query.or(`assignee_user_id.eq.${currentUserId},assignee_user_id.is.null`);
+  }
+
+  query = query.order('last_customer_reply_at', { ascending: true, nullsFirst: false }).limit(500);
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error fetching tickets (fallback):', error);
+    return [];
+  }
+
+  if (!data) return [];
+
+  // Fetch assignee names separately (original method)
+  const assigneeUserIds = data
+    .map((row: any) => row.assignee_user_id)
+    .filter((id: string | null) => id !== null) as string[];
+
+  const assigneeMap = new Map<string, string>();
+  if (assigneeUserIds.length > 0 && supabase) {
+    try {
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, name')
+        .in('id', assigneeUserIds);
+      
+      if (users) {
+        users.forEach((user: any) => {
+          assigneeMap.set(user.id, user.name);
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching assignee names:', err);
+    }
+  }
+
+  return data.map((row: any) => {
+    const ticket = mapRowToTicket(row);
+    if (row.assignee_user_id && assigneeMap.has(row.assignee_user_id)) {
+      ticket.assigneeName = assigneeMap.get(row.assignee_user_id) || null;
+    }
+    return ticket;
+  });
+}
+
+/**
+ * Get a single ticket by ID
+ */
+export async function getTicketById(
+  ticketId: string
+): Promise<Ticket | null> {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('tickets')
+    .select('*')
+    .eq('id', ticketId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error fetching ticket by ID:', error);
+    return null;
+  }
+
+  if (!data) return null;
+
+  // Permissions are handled via API layer; return ticket
+
+  const ticket = mapRowToTicket(data);
+  
+  // Fetch assignee name if ticket is assigned
+  if (data.assignee_user_id && supabase) {
+    try {
+      const { data: user } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', data.assignee_user_id)
+        .limit(1)
+        .maybeSingle();
+      
+      if (user) {
+        ticket.assigneeName = user.name;
+      }
+    } catch (err) {
+      console.error('Error fetching assignee name:', err);
+    }
+  }
+
+  return ticket;
+}
+
+/**
+ * Assign a ticket to a user
+ * @param ticketId - Ticket ID
+ * @param assigneeUserId - User ID to assign to (null to unassign)
+ * @param userEmail - Gmail account email for scoping
+ */
+export async function assignTicket(
+  ticketId: string,
+  assigneeUserId: string | null,
+  assignerUserId?: string | null
+): Promise<Ticket | null> {
+  if (!supabase) return null;
+
+  const updates: any = {
+    assignee_user_id: assigneeUserId,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from('tickets')
+    .update(updates)
+    .eq('id', ticketId)
+    .select('*')
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error assigning ticket:', error);
+    return null;
+  }
+
+  if (!data) return null;
+
+  const ticket = mapRowToTicket(data);
+  // Create assignment notification if assigned to a user
+  try {
+    if (assigneeUserId) {
+      let assignerName: string | undefined = undefined
+
+      // Best-effort lookup of the assigning user's name when provided
+      if (assignerUserId && supabase) {
+        try {
+          const { data: assigner } = await supabase
+            .from('users')
+            .select('name')
+            .eq('id', assignerUserId)
+            .limit(1)
+            .maybeSingle()
+
+          if (assigner?.name) {
+            assignerName = assigner.name
+          }
+        } catch (lookupErr) {
+          console.warn('Non-fatal: failed to fetch assigner name', lookupErr)
+        }
+      }
+
+      const { createAssignmentNotification } = await import('./notifications')
+      await createAssignmentNotification(ticketId, assigneeUserId, assignerName, assignerUserId || undefined)
+    }
+  } catch (err) {
+    console.warn('Non-fatal: failed to create assignment notification', err)
+  }
+  
+  // Fetch assignee name if ticket is assigned
+  if (data.assignee_user_id && supabase) {
+    try {
+      const { data: user } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', data.assignee_user_id)
+        .limit(1)
+        .maybeSingle();
+      
+      if (user) {
+        ticket.assigneeName = user.name;
+      }
+    } catch (err) {
+      console.error('Error fetching assignee name:', err);
+    }
+  }
+
+  return ticket;
+}
+
+/**
+ * Update ticket status
+ */
+export async function updateTicketStatus(
+  ticketId: string,
+  status: TicketStatus,
+  userEmail: string | null
+): Promise<Ticket | null> {
+  if (!supabase) return null;
+
+  const updates: any = {
+    status,
+    updated_at: new Date().toISOString(),
+  };
+
+  let query = supabase
+    .from('tickets')
+    .update(updates)
+    .eq('id', ticketId)
+    .select('*');
+
+  if (userEmail) {
+    query = query.eq('user_email', userEmail);
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    console.error('Error updating ticket status:', error);
+    return null;
+  }
+
+  if (!data) return null;
+
+  return mapRowToTicket(data);
+}
+
+/**
+ * Update ticket priority
+ */
+export async function updateTicketPriority(
+  ticketId: string,
+  priority: TicketPriority
+): Promise<Ticket | null> {
+  if (!supabase) return null;
+
+  const updates: any = {
+    priority,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from('tickets')
+    .update(updates)
+    .eq('id', ticketId)
+    .select('*')
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error updating ticket priority:', error);
+    return null;
+  }
+
+  if (!data) return null;
+
+  return mapRowToTicket(data);
+}
+
+/**
+ * Update ticket tags
+ */
+export async function updateTicketTags(
+  ticketId: string,
+  tags: string[],
+  userEmail: string | null
+): Promise<Ticket | null> {
+  if (!supabase) return null;
+
+  const updates: any = {
+    tags,
+    updated_at: new Date().toISOString(),
+  };
+
+  let query = supabase
+    .from('tickets')
+    .update(updates)
+    .eq('id', ticketId)
+    .select('*');
+
+  if (userEmail) {
+    query = query.eq('user_email', userEmail);
+  }
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error) {
+    console.error('Error updating ticket tags:', error);
+    return null;
+  }
+
+  if (!data) return null;
+
+  return mapRowToTicket(data);
+}
+
