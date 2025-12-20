@@ -309,7 +309,59 @@ export async function getEmailById(
     format: 'full',
   });
 
-  return parseEmailMessage(response.data);
+  const parsed = parseEmailMessage(response.data);
+  try {
+    const attachments = await extractAttachmentsFromMessage(response.data, gmail);
+    if (attachments && attachments.length > 0) {
+      (parsed as any).attachments = attachments;
+      // Inline replacement: replace cid: and filename references with proxy or data URLs
+      try {
+        if (parsed.body && typeof parsed.body === 'string') {
+          let bodyHtml = parsed.body as string;
+          for (const att of attachments) {
+            // Prefer serving attachments via a proxy endpoint so browsers can cache and stream
+            let srcUrl: string | null = null;
+            if ((att as any).attachmentId) {
+              const aid = encodeURIComponent((att as any).attachmentId);
+              const mid = encodeURIComponent(emailId);
+              const fname = att.filename ? `&filename=${encodeURIComponent(att.filename)}` : '';
+              srcUrl = `/api/gmail/attachment?mid=${mid}&aid=${aid}${fname}`;
+            } else if (att.data) {
+              srcUrl = `data:${att.mimeType};base64,${att.data}`;
+            }
+
+            if (!srcUrl) continue;
+
+            if ((att as any).contentId) {
+              const cid = (att as any).contentId.replace(/^<|>$/g, '');
+              bodyHtml = bodyHtml.replace(new RegExp(`(["'])cid:${cid}(["'])`, 'gi'), `"${srcUrl}"`);
+              bodyHtml = bodyHtml.replace(new RegExp(`cid:${cid}`, 'gi'), srcUrl);
+            }
+            if (att.filename) {
+              const escaped = att.filename.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+              // Replace occurrences inside quoted attributes
+              bodyHtml = bodyHtml.replace(new RegExp(`(["'])[^"']*${escaped}[^"']*(\1)`, 'gi'), `"${srcUrl}"`);
+              // Replace src=filename (unquoted) patterns
+              bodyHtml = bodyHtml.replace(new RegExp(`src=([^>\s]*)${escaped}([^>\s]*)`, 'gi'), `src="${srcUrl}"`);
+              // Replace angle-bracket placeholders like <image001.jpg> with an inline <img>
+              bodyHtml = bodyHtml.replace(new RegExp(`<\s*${escaped}\s*>`, 'gi'), `<img src="${srcUrl}" alt="${att.filename}" />`);
+              // Replace HTML-escaped angle brackets &lt;image001.jpg&gt;
+              bodyHtml = bodyHtml.replace(new RegExp(`&lt;\s*${escaped}\s*&gt;`, 'gi'), `<img src="${srcUrl}" alt="${att.filename}" />`);
+              // Also replace bare filename occurrences wrapped in angle brackets without extension quoting
+              bodyHtml = bodyHtml.replace(new RegExp(`${escaped}`, 'gi'), srcUrl);
+            }
+          }
+          (parsed as any).body = bodyHtml;
+        }
+      } catch (err) {
+        console.warn('CID replacement failed for message', emailId, err);
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to fetch attachments for message', emailId, err);
+  }
+
+  return parsed;
 }
 
 /**
@@ -331,7 +383,55 @@ export async function getThreadById(
 
   const messages = response.data.messages || [];
 
-  const parsed = messages.map((message) => parseEmailMessage(message));
+  const parsed = await Promise.all(
+    messages.map(async (message) => {
+      const p = parseEmailMessage(message);
+      try {
+        const attachments = await extractAttachmentsFromMessage(message, gmail);
+        if (attachments && attachments.length > 0) {
+          (p as any).attachments = attachments;
+          // CID replacement for inline images in thread messages
+          try {
+            if (p.body && typeof p.body === 'string') {
+              let bodyHtml = p.body as string;
+              for (const att of attachments) {
+                let srcUrl: string | null = null;
+                if ((att as any).attachmentId) {
+                  const aid = encodeURIComponent((att as any).attachmentId);
+                  const mid = encodeURIComponent(message.id || '');
+                  const fname = att.filename ? `&filename=${encodeURIComponent(att.filename)}` : '';
+                  srcUrl = `/api/gmail/attachment?mid=${mid}&aid=${aid}${fname}`;
+                } else if (att.data) {
+                  srcUrl = `data:${att.mimeType};base64,${att.data}`;
+                }
+                if (!srcUrl) continue;
+                if ((att as any).contentId) {
+                  const cid = (att as any).contentId.replace(/^<|>$/g, '');
+                  const reCidQuoted = new RegExp(`(["'])cid:${cid}(["'])`, 'gi');
+                  bodyHtml = bodyHtml.replace(reCidQuoted, `"${srcUrl}"`);
+                  bodyHtml = bodyHtml.replace(new RegExp(`cid:${cid}`, 'gi'), srcUrl);
+                }
+                if (att.filename) {
+                  const escaped = att.filename.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
+                  bodyHtml = bodyHtml.replace(new RegExp(`(["'])[^"']*${escaped}[^"']*(\1)`, 'gi'), `"${srcUrl}"`);
+                  bodyHtml = bodyHtml.replace(new RegExp(`src=([^>\s]*)${escaped}([^>\s]*)`, 'gi'), `src="${srcUrl}"`);
+                  bodyHtml = bodyHtml.replace(new RegExp(`<\s*${escaped}\s*>`, 'gi'), `<img src="${srcUrl}" alt="${att.filename}" />`);
+                  bodyHtml = bodyHtml.replace(new RegExp(`&lt;\s*${escaped}\s*&gt;`, 'gi'), `<img src="${srcUrl}" alt="${att.filename}" />`);
+                  bodyHtml = bodyHtml.replace(new RegExp(`${escaped}`, 'gi'), srcUrl);
+                }
+              }
+              (p as any).body = bodyHtml;
+            }
+          } catch (err) {
+            console.warn('CID replacement failed for thread message', message.id, err);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to fetch attachments for thread message', message.id, err);
+      }
+      return p;
+    })
+  );
 
   // Sort by date ascending so UI can render top-to-bottom conversation
   parsed.sort((a, b) => {
@@ -465,13 +565,8 @@ function parseEmailMessage(message: any, metadataOnly: boolean = false) {
     bodyText = bodyResult.text;
 
     if (!bodyText && bodyResult.htmlFallback) {
-      // Strip HTML tags as a fallback; keep simple breaks
-      bodyText = bodyResult.htmlFallback
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<\/p>/gi, '\n\n')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&nbsp;/g, ' ')
-        .trim();
+      // Preserve HTML fallback so we can render it and handle inline images (cid:)
+      bodyText = bodyResult.htmlFallback;
     }
   } else {
     // For metadata format, use snippet if available
@@ -511,6 +606,63 @@ function encodeBase64Url(input: string) {
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
+}
+
+async function fetchAttachmentData(gmail: any, messageId: string, attachmentId: string) {
+  const res = await gmail.users.messages.attachments.get({
+    userId: 'me',
+    messageId,
+    id: attachmentId,
+  });
+  // Gmail returns { data: 'base64url' } or similar
+  const data = res?.data?.data || res?.data;
+  return typeof data === 'string' ? data : '';
+}
+
+async function extractAttachmentsFromMessage(message: any, gmail: any) {
+  const results: { filename: string; mimeType: string; data: string; contentId?: string; attachmentId?: string }[] = [];
+
+  const getHeaderFromPart = (p: any, name: string) => p?.headers?.find((h: any) => h.name && h.name.toLowerCase() === name.toLowerCase())?.value || '';
+
+  const walk = async (part: any) => {
+    if (!part) return;
+
+    if (part.filename && part.filename.trim()) {
+      let base64data = '';
+
+      // If the part has an attachmentId, fetch it via attachments.get
+      let attachmentId: string | undefined = undefined;
+      if (part.body && part.body.attachmentId) {
+        try {
+          const raw = await fetchAttachmentData(gmail, message.id, part.body.attachmentId);
+          base64data = raw.replace(/-/g, '+').replace(/_/g, '/');
+          attachmentId = part.body.attachmentId;
+        } catch (err) {
+          console.error('Error fetching attachment data:', err);
+        }
+      } else if (part.body && part.body.data) {
+        base64data = (part.body.data as string).replace(/-/g, '+').replace(/_/g, '/');
+      }
+
+      const contentId = getHeaderFromPart(part, 'content-id') || '';
+      results.push({
+        filename: part.filename,
+        mimeType: part.mimeType || 'application/octet-stream',
+        data: base64data,
+        contentId: contentId ? contentId.replace(/^<|>$/g, '') : undefined,
+        attachmentId: attachmentId,
+      });
+    }
+
+    if (part.parts && Array.isArray(part.parts)) {
+      for (const p of part.parts) {
+        await walk(p);
+      }
+    }
+  };
+
+  await walk(message.payload);
+  return results;
 }
 
 /**

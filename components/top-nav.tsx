@@ -405,8 +405,8 @@ export default function TopNav({ isConnected, userProfile, currentUser, onLogout
         {isConnected && (
           <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2.5 rounded-lg px-3 py-1.5 hover:bg-muted/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-w-full min-w-0 overflow-hidden">
-                <div className="hidden text-right sm:block min-w-0 max-w-[140px] md:max-w-[220px]">
+              <button className="flex items-center gap-2.5 rounded-lg px-3 py-1.5 hover:bg-muted/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-w-full min-w-0 overflow-hidden flex-shrink-0">
+                <div className="hidden text-right sm:block min-w-0 max-w-[120px] md:max-w-[160px]">
                   <div className="text-sm font-medium text-foreground truncate">
                     {currentUser?.name || userProfile?.name || "Connected"}
                   </div>

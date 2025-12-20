@@ -26,33 +26,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check URL param to force refresh
-    const forceRefresh = request.nextUrl.searchParams.get('refresh') === 'true';
+    // Always fetch the full set from MySQL (this ensures we show all unassigned messages)
+    // and then cache the results in Supabase for faster subsequent access.
+    console.log('Fetching emails from MySQL CRM database (primary source)...');
+    const mysqlEmails = await fetchUnassignedEmails();
 
-    let emails: any[] = [];
-    let fromCache = false;
+    // Cache in background (don't block response)
+    cacheEmails(mysqlEmails).catch((err) => {
+      console.error('Background cache error:', err);
+    });
 
-    // Try cache first (unless forced refresh)
-    if (!forceRefresh) {
-      const cachedEmails = await getCachedEmails();
-      if (cachedEmails && cachedEmails.length > 0) {
-        console.log(`Retrieved ${cachedEmails.length} emails from Supabase cache`);
-        emails = cachedEmails;
-        fromCache = true;
-      }
-    }
-
-    // Cache miss or forced refresh - fetch from MySQL
-    if (emails.length === 0 || forceRefresh) {
-      console.log('Fetching emails from MySQL CRM database...');
-      const mysqlEmails = await fetchUnassignedEmails();
-      emails = mysqlEmails;
-
-      // Cache in background (don't wait)
-      cacheEmails(mysqlEmails).catch((err) => {
-        console.error('Background cache error:', err);
-      });
-    }
+    const emails = mysqlEmails;
+    const fromCache = false;
 
     return NextResponse.json({
       success: true,

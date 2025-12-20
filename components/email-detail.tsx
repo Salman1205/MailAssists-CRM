@@ -41,14 +41,61 @@ const sanitizeEmailHtml = (html: string) => {
     if (style.includes("color:")) {
       // Remove inline color styles to use app defaults
       const cleanedStyle = style.replace(/color:\s*[^;]*;?/gi, "")
-      if (cleanedStyle.trim()) {
-        el.setAttribute("style", cleanedStyle)
+      let finalStyle = cleanedStyle
+      // Also remove explicit height/min-height/width spacers that create large empty areas
+      finalStyle = finalStyle.replace(/height:\s*[^;]+;?/gi, "")
+      finalStyle = finalStyle.replace(/min-height:\s*[^;]+;?/gi, "")
+      finalStyle = finalStyle.replace(/width:\s*[^;]+;?/gi, "")
+      if (finalStyle.trim()) {
+        el.setAttribute("style", finalStyle)
       } else {
         el.removeAttribute("style")
       }
     }
   })
-  
+
+  // Remove empty spacer elements (e.g., <div style="height:200px"></div>) and
+  // leading empty blocks so the message content appears near the top.
+  const isMeaningful = (node: Element) => {
+    // Images/iframes/objects or links are meaningful
+    if (node.querySelector && (node.querySelector('img, iframe, object, video, a'))) return true
+    // If it has text content, it's meaningful
+    if ((node.textContent || '').trim().length > 0) return true
+    return false
+  }
+
+  // Remove elements that are empty and have explicit spacer styles
+  const removeEmptySpacers = (root: Element) => {
+    const nodes = Array.from(root.querySelectorAll('*'))
+    nodes.forEach((n) => {
+      try {
+        const el = n as HTMLElement
+        const style = el.getAttribute('style') || ''
+        const hasSpacerStyle = /height:\s*\d+px|min-height:\s*\d+px/i.test(style)
+        if (!isMeaningful(el) && hasSpacerStyle) {
+          el.remove()
+        }
+      } catch {}
+    })
+  }
+
+  removeEmptySpacers(tmp)
+
+  // Trim leading empty child blocks
+  while (tmp.firstElementChild && !isMeaningful(tmp.firstElementChild as Element)) {
+    tmp.firstElementChild.remove()
+  }
+
+  // Improve image loading: prefer lazy decoding and avoid leaking referrer
+  const imgs = tmp.querySelectorAll('img')
+  imgs.forEach((img) => {
+    try {
+      img.setAttribute('loading', 'lazy')
+      img.setAttribute('decoding', 'async')
+      img.setAttribute('referrerpolicy', 'no-referrer')
+    } catch {}
+  })
+
   return tmp.innerHTML
 }
 
@@ -1159,23 +1206,66 @@ export default function EmailDetail({ emailId, onDraftGenerated, onBack, initial
                     </div>
 
                     {/* Attachment Indicator */}
-                    {msg.body && detectAttachmentReferences(msg.body).length > 0 && (
+                    {(msg.attachments && msg.attachments.length > 0) || (msg.body && detectAttachmentReferences(msg.body).length > 0) ? (
                       <div className="mt-4 p-3 bg-primary/5 border border-primary/20 rounded-lg">
                         <div className="flex items-start gap-2">
                           <Paperclip className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
                           <div className="text-xs text-foreground/80">
-                            <div className="font-semibold mb-1">Attachments mentioned:</div>
+                            <div className="font-semibold mb-1">Attachments</div>
                             <div className="space-y-1">
-                              {detectAttachmentReferences(msg.body).map((file) => (
-                                <div key={file} className="text-muted-foreground">
-                                  📎 {file}
+                              {msg.attachments && msg.attachments.length > 0 && msg.attachments.map((att: any, idx: number) => (
+                                <div key={`${att.filename}-${idx}`} className="flex items-center justify-between">
+                                  <div className="truncate max-w-[70%]">📎 {att.filename}</div>
+                                  {att.attachmentId ? (
+                                    <a
+                                      href={`/api/gmail/attachment?mid=${encodeURIComponent(msg.id)}&aid=${encodeURIComponent(att.attachmentId)}&filename=${encodeURIComponent(att.filename)}`}
+                                      className="text-xs text-primary underline"
+                                      download={att.filename}
+                                    >
+                                      Download
+                                    </a>
+                                  ) : att.data ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        try {
+                                          const byteChars = atob(att.data);
+                                          const byteNumbers = new Array(byteChars.length);
+                                          for (let i = 0; i < byteChars.length; i++) {
+                                            byteNumbers[i] = byteChars.charCodeAt(i);
+                                          }
+                                          const byteArray = new Uint8Array(byteNumbers);
+                                          const blob = new Blob([byteArray], { type: att.mimeType || 'application/octet-stream' });
+                                          const url = URL.createObjectURL(blob);
+                                          const a = document.createElement('a');
+                                          a.href = url;
+                                          a.download = att.filename;
+                                          document.body.appendChild(a);
+                                          a.click();
+                                          a.remove();
+                                          URL.revokeObjectURL(url);
+                                        } catch (err) {
+                                          console.error('Download failed', err);
+                                        }
+                                      }}
+                                      className="text-xs text-primary underline"
+                                    >
+                                      Download
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">(not available)</span>
+                                  )}
                                 </div>
+                              ))}
+
+                              {msg.body && detectAttachmentReferences(msg.body).map((file) => (
+                                <div key={file} className="text-muted-foreground">📎 {file}</div>
                               ))}
                             </div>
                           </div>
                         </div>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 ))
               ) : (
@@ -1261,7 +1351,8 @@ export default function EmailDetail({ emailId, onDraftGenerated, onBack, initial
             )}
             <Button
               onClick={handleGenerateDraft}
-              disabled={generating || showDraft}
+              disabled={true}
+              title="AI draft generation is disabled"
               className="w-full h-11 text-base font-semibold shadow-md hover:shadow-lg"
             >
               {generating ? (

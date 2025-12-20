@@ -80,137 +80,7 @@ function PageContent() {
     isConnected &&
     (!currentUserId || (!hasAdmin && currentUser && currentUser.role !== "admin"))
 
-  useEffect(() => {
-    checkAuthStatus()
-    checkUserSelection()
-  }, [])
-
-  // Listen to ticketId in the URL to deep-link into a specific ticket from notifications
-  useEffect(() => {
-    const ticketId = searchParams.get("ticketId")
-    if (ticketId) {
-      setActiveView("tickets")
-      setDeepLinkTicketId(ticketId)
-      setTicketNavKey(prev => prev + 1) // Increment to force re-selection
-    }
-  }, [searchParams])
-
-  // Save active view to localStorage
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('activeView', activeView)
-    }
-  if (showUserSelector) {
-    return (
-      <div className="min-h-screen bg-background">
-        <UserSelector 
-          onUserSelected={handleUserSelected}
-          currentUserId={currentUserId}
-        />
-      </div>
-    )
-  }
-
-  return (
-    <>
-      <div className="flex min-h-screen flex-col bg-background">
-        <div className="fixed top-0 left-0 right-0 z-40">
-          <TopNav 
-            isConnected={isConnected} 
-            userProfile={userProfile} 
-            currentUser={currentUser}
-            onLogout={handleLogout}
-            onSwitchUser={handleSwitchUser}
-            onSearch={(query) => {
-              // Only update global search term. Do not auto-navigate to Tickets.
-              setGlobalSearch(query)
-            }}
-          />
-          {renderMobileTabs()}
-
-          <main className="flex-1 overflow-auto">
-            {checkingAuth || checkingUser ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="flex flex-col items-center gap-3 animate-in fade-in duration-500">
-                  <div className="flex gap-1.5">
-                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {checkingAuth ? "Checking authentication..." : "Loading..."}
-                  </p>
-                </div>
-              </div>
-            ) : !isConnected ? (
-              <div className="flex items-center justify-center h-full p-4">
-                <GmailConnect onConnect={handleConnect} />
-              </div>
-            ) : (
-              renderView()
-            )}
-          </main>
-        </div>
-      </div>
-          // Verify user still belongs to current account
-          const verifyResponse = await fetch("/api/auth/current-user")
-          if (verifyResponse.ok) {
-            const verifyData = await verifyResponse.json()
-            if (verifyData.user && verifyData.user.id === storedUserId) {
-              // User is valid and belongs to current account
-              setCurrentUserId(storedUserId)
-              setCurrentUser({
-                id: storedUserId,
-                name: storedUserName,
-                role: storedUserRole,
-              })
-              setCheckingUser(false)
-              return
-            }
-          }
-          // If verification failed, clear sessionStorage
-          sessionStorage.removeItem("current_user_id")
-          sessionStorage.removeItem("current_user_name")
-          sessionStorage.removeItem("current_user_role")
-        }
-      }
-      
-      // Fallback: Check API (cookie-based, shared across tabs)
-      const response = await fetch("/api/auth/current-user")
-      if (response.ok) {
-        const data = await response.json()
-        if (data.user) {
-          setCurrentUserId(data.user.id)
-          setCurrentUser({
-            id: data.user.id,
-            name: data.user.name,
-            role: data.user.role,
-          })
-          // Store in sessionStorage for this tab
-          if (typeof window !== "undefined") {
-            sessionStorage.setItem("current_user_id", data.user.id)
-            sessionStorage.setItem("current_user_name", data.user.name)
-            sessionStorage.setItem("current_user_role", data.user.role)
-          }
-        }
-      } else if (response.status === 403 || response.status === 404) {
-        // User doesn't belong to current account or not found - clear sessionStorage
-        if (typeof window !== "undefined") {
-          sessionStorage.removeItem("current_user_id")
-          sessionStorage.removeItem("current_user_name")
-          sessionStorage.removeItem("current_user_role")
-        }
-        setCurrentUserId(null)
-        setCurrentUser(null)
-      }
-      // If 404, no user selected - that's okay, we'll show selector
-    } catch {
-      // Ignore errors
-    } finally {
-      setCheckingUser(false)
-    }
-  }
-
+  // Handle user selection (moved before render so JSX can reference it)
   const handleUserSelected = async (userId: string) => {
     setCurrentUserId(userId)
     setCheckingUser(false)
@@ -245,6 +115,31 @@ function PageContent() {
     }
   }
 
+  useEffect(() => {
+    checkAuthStatus()
+    checkUserSelection()
+  }, [])
+
+  // Listen to ticketId in the URL to deep-link into a specific ticket from notifications
+  useEffect(() => {
+    const ticketId = searchParams.get("ticketId")
+    if (ticketId) {
+      setActiveView("tickets")
+      setDeepLinkTicketId(ticketId)
+      setTicketNavKey(prev => prev + 1) // Increment to force re-selection
+    }
+  }, [searchParams])
+
+  // Save active view to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('activeView', activeView)
+    }
+  }, [activeView])
+
+  // Note: do not early-return here — render via main JSX to keep hook order stable
+
+  
   const handleSwitchUser = async (userId: string) => {
     // User switching - update state smoothly without page reload
     setCurrentUserId(userId)
@@ -435,6 +330,21 @@ function PageContent() {
     }
   }
 
+  const checkAdminExists = async () => {
+    try {
+      const response = await fetch('/api/users')
+      if (!response.ok) {
+        setHasAdmin(false)
+        return
+      }
+      const data = await response.json()
+      const admins = (data.users || []).some((u: any) => u.role === 'admin')
+      setHasAdmin(Boolean(admins))
+    } catch {
+      setHasAdmin(false)
+    }
+  }
+
   const handleConnect = async () => {
     // After login, re-check auth and user selection
     try {
@@ -445,10 +355,82 @@ function PageContent() {
     }
   }
 
+  const checkUserSelection = async () => {
+    setCheckingUser(true)
+    try {
+      // Fast path: use tab-local sessionStorage
+      if (typeof window !== "undefined") {
+        const storedUserId = sessionStorage.getItem("current_user_id")
+        const storedUserName = sessionStorage.getItem("current_user_name")
+        const storedUserRole = sessionStorage.getItem("current_user_role")
+
+        if (storedUserId && storedUserName && storedUserRole) {
+          // Verify user still belongs to current account
+          const verifyResponse = await fetch("/api/auth/current-user")
+          if (verifyResponse.ok) {
+            const verifyData = await verifyResponse.json()
+            if (verifyData.user && verifyData.user.id === storedUserId) {
+              setCurrentUserId(storedUserId)
+              setCurrentUser({ id: storedUserId, name: storedUserName, role: storedUserRole })
+              await checkAdminExists()
+              setCheckingUser(false)
+              return
+            }
+          }
+          // If verification failed, clear sessionStorage
+          sessionStorage.removeItem("current_user_id")
+          sessionStorage.removeItem("current_user_name")
+          sessionStorage.removeItem("current_user_role")
+        }
+      }
+
+      // Fallback: Check API (cookie-based, shared across tabs)
+      const response = await fetch("/api/auth/current-user")
+      if (response.ok) {
+        const data = await response.json()
+        if (data.user) {
+          setCurrentUserId(data.user.id)
+          setCurrentUser({ id: data.user.id, name: data.user.name, role: data.user.role })
+          await checkAdminExists()
+          // Store in sessionStorage for this tab
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem("current_user_id", data.user.id)
+            sessionStorage.setItem("current_user_name", data.user.name)
+            sessionStorage.setItem("current_user_role", data.user.role)
+          }
+        }
+      } else if (response.status === 403 || response.status === 404) {
+        // User doesn't belong to current account or not found - clear sessionStorage
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("current_user_id")
+          sessionStorage.removeItem("current_user_name")
+          sessionStorage.removeItem("current_user_role")
+        }
+        setCurrentUserId(null)
+        setCurrentUser(null)
+      }
+      // If 404, no user selected - that's okay, we'll show selector
+    } catch {
+      // Ignore errors
+    } finally {
+      setCheckingUser(false)
+    }
+  }
+
   const handleLogout = async () => {
     setLoggingOut(true)
     try {
-      await fetch("/api/auth/logout", { method: "POST" })
+      // Abort/timeout the logout fetch if the server doesn't respond.
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+      try {
+        await fetch("/api/auth/logout", { method: "POST", signal: controller.signal })
+      } catch (err) {
+        // If aborted/timed out, log and continue with local cleanup
+        console.warn('Logout request failed or timed out:', err)
+      } finally {
+        clearTimeout(timeout)
+      }
     } finally {
       // Clear sessionStorage for this tab
       if (typeof window !== "undefined") {
@@ -644,11 +626,12 @@ function PageContent() {
       <div className="flex h-screen bg-background text-foreground overflow-x-hidden">
         {isConnected && (
           <Sidebar 
-            activeView={activeView} 
-            setActiveView={setActiveView} 
-            onLogout={handleLogout}
-            currentUser={currentUser}
-          />
+              activeView={activeView} 
+              setActiveView={setActiveView} 
+              onLogout={handleLogout}
+              currentUser={currentUser}
+              forceExpanded={showUserSelector}
+            />
         )}
 
         <div className="flex flex-col flex-1 min-h-0">

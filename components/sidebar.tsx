@@ -22,6 +22,7 @@ interface SidebarProps {
   setActiveView: (view: SidebarView) => void
   onLogout?: () => void
   currentUser?: { id: string; name: string; role: string } | null
+  forceExpanded?: boolean
 }
 
 const NAV_ITEMS = [
@@ -55,8 +56,10 @@ const ANALYTICS_NAV_ITEMS = [
  * - Smooth 300ms transition animation
  * - Tooltips on hover when collapsed
  */
-export default function Sidebar({ activeView, setActiveView, onLogout, currentUser }: SidebarProps) {
+export default function Sidebar({ activeView, setActiveView, onLogout, currentUser, forceExpanded }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(true)
+  // If parent forces expansion (e.g., during user selection), respect that
+  const effectiveCollapsed = forceExpanded ? false : isCollapsed
   const isAdmin = currentUser?.role === "admin"
   const isManager = currentUser?.role === "manager"
 
@@ -65,7 +68,7 @@ export default function Sidebar({ activeView, setActiveView, onLogout, currentUs
       className={`
         hidden md:flex flex-col h-screen bg-card border-r border-border
         transition-all duration-300 ease-out shadow-md
-        ${isCollapsed ? "w-20" : "w-64"}
+        ${effectiveCollapsed ? "w-20" : "w-64"}
       `}
     >
       {/* Collapse/Expand Toggle at Top */}
@@ -73,7 +76,7 @@ export default function Sidebar({ activeView, setActiveView, onLogout, currentUs
         className={`
           flex-shrink-0 h-16 flex items-center border-b border-border
           transition-all duration-300 bg-card
-          ${isCollapsed ? "justify-center px-2" : "px-5 justify-between"}
+          ${effectiveCollapsed ? "justify-center px-2" : "px-5 justify-between"}
         `}
       >
         {!isCollapsed && (
@@ -101,7 +104,7 @@ export default function Sidebar({ activeView, setActiveView, onLogout, currentUs
       </div>
 
       {/* Navigation */}
-      <nav className={`flex-1 ${isCollapsed ? "px-2 py-4" : "px-3 py-6"} space-y-1`}>
+      <nav className={`flex-1 ${effectiveCollapsed ? "px-2 py-4" : "px-3 py-6"} space-y-1`}>
         {NAV_ITEMS.map((item) => {
           const isActive = activeView === item.id
           const Icon = item.icon

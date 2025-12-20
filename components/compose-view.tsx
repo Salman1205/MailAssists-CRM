@@ -351,7 +351,8 @@ export default function ComposeView({ currentUserId, onEmailSent, setActiveView 
                 {composeMode === 'ai' && !bodyHtml && (
                   <Button
                     onClick={handleGenerateDraft}
-                    disabled={isGenerating || !recipient.trim() || !subject.trim() || !context.trim()}
+                    disabled={true}
+                    title="AI draft generation is disabled"
                     size="lg"
                     className="bg-gradient-to-r from-[var(--ai-gradient-from)] to-[var(--ai-gradient-to)] hover:shadow-lg hover:scale-105 transition-all duration-200 shadow-md"
                   >

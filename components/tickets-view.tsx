@@ -2963,7 +2963,8 @@ export default function TicketsView({ currentUserId, currentUserRole, globalSear
                         size="sm"
                         variant="secondary"
                         onClick={handleGenerateDraft}
-                        disabled={generatingDraft || !threadMessages.length}
+                        disabled={true}
+                        title="AI draft generation is disabled"
                         className="h-7 text-xs"
                       >
                         {generatingDraft ? (

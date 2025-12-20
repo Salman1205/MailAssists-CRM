@@ -29,8 +29,7 @@ export default function SyncToast({ syncing, status, processed, target, error, o
   // Show toast if syncing, has error, or just completed (pending === 0 and processed > 0)
   const isComplete = !syncing && !error && status?.pendingReplies === 0 && processed > 0
   
-  // TODO: Re-enable error toast once embedding service is stable
-  // For now, silently log errors and don't show toast
+  // TODO: Keep toast hidden for errors until embedding service stabilizes
   if (error) {
     console.error('Embedding error (toast disabled):', error);
     return null;
