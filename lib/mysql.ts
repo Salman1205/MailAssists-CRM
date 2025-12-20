@@ -1,13 +1,29 @@
 /**
  * MySQL Database Connection
  * Connects to external CRM MySQL database
+ * 
+ * Note: MySQL requires VPN (SonicWall NetExtender) and only works locally.
+ * On Vercel, this will be skipped and Supabase cache will be used instead.
  */
 
 import mysql from 'mysql2/promise';
 
 let pool: mysql.Pool | null = null;
 
+// Check if MySQL should be enabled (only in local development with VPN)
+function isMySQLEnabled(): boolean {
+  // Disable MySQL on Vercel or if MYSQL_HOST is not set
+  if (process.env.VERCEL || !process.env.MYSQL_HOST) {
+    return false;
+  }
+  return true;
+}
+
 export function getMySQLConnection(): mysql.Pool {
+  if (!isMySQLEnabled()) {
+    throw new Error('MySQL is disabled in this environment. Using Supabase cache instead.');
+  }
+  
   if (!pool) {
     pool = mysql.createPool({
       host: process.env.MYSQL_HOST || 'localhost',
@@ -20,6 +36,9 @@ export function getMySQLConnection(): mysql.Pool {
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
+      connectTimeout: 10000, // 10 seconds timeout
+      acquireTimeout: 10000, // 10 seconds to acquire connection
+      timeout: 10000, // 10 seconds query timeout
     });
   }
   return pool;
@@ -27,6 +46,10 @@ export function getMySQLConnection(): mysql.Pool {
 
 export async function testMySQLConnection(): Promise<boolean> {
   try {
+    if (!isMySQLEnabled()) {
+      console.log('MySQL is disabled in this environment (Vercel or no VPN)');
+      return false;
+    }
     const connection = getMySQLConnection();
     await connection.query('SELECT 1');
     console.log('MySQL connection successful');
@@ -58,6 +81,10 @@ export interface CRMEmail {
 }
 
 export async function fetchUnassignedEmails(): Promise<CRMEmail[]> {
+  if (!isMySQLEnabled()) {
+    throw new Error('MySQL is not available in this environment. Please use Supabase cache.');
+  }
+  
   try {
     const connection = getMySQLConnection();
     

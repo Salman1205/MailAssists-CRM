@@ -92,8 +92,9 @@ export async function GET(request: NextRequest) {
 
     // Cache miss or forced refresh - fetch from MySQL
     if (!customer || forceRefresh) {
-      console.log('Fetching customer from MySQL...');
-      const connection = getMySQLConnection();
+      try {
+        console.log('Fetching customer from MySQL...');
+        const connection = getMySQLConnection();
 
       // Select only safe, universally present columns to avoid unknown-column errors.
       // We'll include address/phone details later once exact column names are confirmed.
@@ -164,6 +165,19 @@ export async function GET(request: NextRequest) {
       }).catch((err) => {
         console.error('Background cache error:', err);
       });
+      } catch (mysqlError) {
+        console.error('MySQL fetch failed:', mysqlError);
+        // If we already have a cached customer (from initial check), return it
+        if (customer) {
+          console.log('Returning cached customer due to MySQL error');
+          return NextResponse.json({ customer, fromCache: true });
+        }
+        // Otherwise return error
+        return NextResponse.json(
+          { error: 'Customer not found and MySQL unavailable' },
+          { status: 404 }
+        );
+      }
     }
 
     return NextResponse.json({ customer, fromCache });
