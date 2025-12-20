@@ -74,6 +74,12 @@ function PageContent() {
   const [ticketNavKey, setTicketNavKey] = useState(0) // Force re-selection on navigation
   const searchParams = useSearchParams()
 
+  const showUserSelector =
+    !checkingAuth &&
+    !checkingUser &&
+    isConnected &&
+    (!currentUserId || (!hasAdmin && currentUser && currentUser.role !== "admin"))
+
   useEffect(() => {
     checkAuthStatus()
     checkUserSelection()
@@ -94,52 +100,58 @@ function PageContent() {
     if (typeof window !== 'undefined') {
       localStorage.setItem('activeView', activeView)
     }
-  }, [activeView])
-
-  // Update browser tab title to show current user
-  useEffect(() => {
-    if (currentUser?.name) {
-      document.title = `${currentUser.name} (${currentUser.role}) - MailAssist`
-    } else if (isConnected) {
-      document.title = "MailAssist"
-    } else {
-      document.title = "MailAssist - Sign In"
-    }
-  }, [currentUser, isConnected])
-
-  // Re-check admin status when currentUser changes
-  useEffect(() => {
-    if (currentUser && isConnected) {
-      checkAdminExists()
-    }
-  }, [currentUser, isConnected])
-
-  const checkAdminExists = async () => {
-    try {
-      const response = await fetch("/api/users")
-      if (response.ok) {
-        const data = await response.json()
-        const adminExists = data.users?.some((u: any) => u.role === "admin" && u.isActive) || false
-        setHasAdmin(adminExists)
-      }
-    } catch {
-      // Ignore errors
-    }
+  if (showUserSelector) {
+    return (
+      <div className="min-h-screen bg-background">
+        <UserSelector 
+          onUserSelected={handleUserSelected}
+          currentUserId={currentUserId}
+        />
+      </div>
+    )
   }
 
-  const checkUserSelection = async () => {
-    try {
-      // Check for admin existence first
-      await checkAdminExists()
-      
-      // First check sessionStorage (per-tab)
-      // But verify with API to ensure user belongs to current Gmail account
-      if (typeof window !== "undefined") {
-        const storedUserId = sessionStorage.getItem("current_user_id")
-        const storedUserName = sessionStorage.getItem("current_user_name")
-        const storedUserRole = sessionStorage.getItem("current_user_role")
-        
-        if (storedUserId && storedUserName && storedUserRole) {
+  return (
+    <>
+      <div className="flex min-h-screen flex-col bg-background">
+        <div className="fixed top-0 left-0 right-0 z-40">
+          <TopNav 
+            isConnected={isConnected} 
+            userProfile={userProfile} 
+            currentUser={currentUser}
+            onLogout={handleLogout}
+            onSwitchUser={handleSwitchUser}
+            onSearch={(query) => {
+              // Only update global search term. Do not auto-navigate to Tickets.
+              setGlobalSearch(query)
+            }}
+          />
+          {renderMobileTabs()}
+
+          <main className="flex-1 overflow-auto">
+            {checkingAuth || checkingUser ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center gap-3 animate-in fade-in duration-500">
+                  <div className="flex gap-1.5">
+                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {checkingAuth ? "Checking authentication..." : "Loading..."}
+                  </p>
+                </div>
+              </div>
+            ) : !isConnected ? (
+              <div className="flex items-center justify-center h-full p-4">
+                <GmailConnect onConnect={handleConnect} />
+              </div>
+            ) : (
+              renderView()
+            )}
+          </main>
+        </div>
+      </div>
           // Verify user still belongs to current account
           const verifyResponse = await fetch("/api/auth/current-user")
           if (verifyResponse.ok) {

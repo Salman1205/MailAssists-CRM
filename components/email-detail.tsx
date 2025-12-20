@@ -600,6 +600,8 @@ export default function EmailDetail({ emailId, onDraftGenerated, onBack, initial
     }
   }
 
+  const canSend = Boolean(emailId)
+
   const handleEditorInput = () => {
     const html = editorRef.current?.innerHTML || ""
     setDraftHtml(html)
@@ -1473,7 +1475,7 @@ export default function EmailDetail({ emailId, onDraftGenerated, onBack, initial
                     <div className="flex items-center gap-2">
                       <Button
                         onClick={() => handleSendReply()}
-                        disabled={sending || sendSuccess}
+                        disabled={sending || sendSuccess || !canSend}
                         className={`flex-1 h-10 text-sm font-semibold shadow-md transition-all duration-300 ease-out hover:shadow-lg disabled:cursor-not-allowed ${
                           sendSuccess 
                             ? "bg-green-600 text-white hover:bg-green-600" 
@@ -1495,7 +1497,7 @@ export default function EmailDetail({ emailId, onDraftGenerated, onBack, initial
                         <Button
                           variant="secondary"
                           onClick={() => handleSendReply({ closeTicket: true })}
-                          disabled={sending || sendSuccess}
+                          disabled={sending || sendSuccess || !canSend}
                           className="flex-1 h-10 text-sm font-semibold shadow-md transition-all duration-300 ease-out hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {sendingAction === 'send-close' ? (
