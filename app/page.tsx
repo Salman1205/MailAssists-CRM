@@ -624,7 +624,7 @@ function PageContent() {
   return (
     <>
       <div className="flex h-screen bg-background text-foreground overflow-x-hidden">
-        {isConnected && (
+        {isConnected && !showUserSelector && (
           <Sidebar 
               activeView={activeView} 
               setActiveView={setActiveView} 
@@ -635,18 +635,20 @@ function PageContent() {
         )}
 
         <div className="flex flex-col flex-1 min-h-0">
-          <TopNav 
-            isConnected={isConnected} 
-            userProfile={userProfile} 
-            currentUser={currentUser}
-            userSelected={Boolean(currentUserId)}
-            onLogout={handleLogout}
-            onSwitchUser={handleSwitchUser}
-            onSearch={(query) => {
-              // Only update global search term. Do not auto-navigate to Tickets.
-              setGlobalSearch(query)
-            }}
-          />
+          {isConnected && (
+            <TopNav 
+              isConnected={isConnected} 
+              userProfile={userProfile} 
+              currentUser={currentUser}
+              userSelected={Boolean(currentUserId)}
+              onLogout={handleLogout}
+              onSwitchUser={handleSwitchUser}
+              onSearch={(query) => {
+                // Only update global search term. Do not auto-navigate to Tickets.
+                setGlobalSearch(query)
+              }}
+            />
+          )}
           {renderMobileTabs()}
 
           <main className="flex-1 overflow-auto">
