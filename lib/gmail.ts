@@ -339,8 +339,8 @@ export async function getEmailById(
             }
             if (att.filename) {
               const escaped = att.filename.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
-              // Replace occurrences inside quoted attributes
-              bodyHtml = bodyHtml.replace(new RegExp(`(["'])[^"']*${escaped}[^"']*(\1)`, 'gi'), `"${srcUrl}"`);
+              // Replace occurrences inside quoted attributes (match either quote type without backreference)
+              bodyHtml = bodyHtml.replace(new RegExp(`(?:"[^"]*${escaped}[^"]*"|'[^']*${escaped}[^']*')`, 'gi'), `"${srcUrl}"`);
               // Replace src=filename (unquoted) patterns
               bodyHtml = bodyHtml.replace(new RegExp(`src=([^>\s]*)${escaped}([^>\s]*)`, 'gi'), `src="${srcUrl}"`);
               // Replace angle-bracket placeholders like <image001.jpg> with an inline <img>
@@ -413,7 +413,7 @@ export async function getThreadById(
                 }
                 if (att.filename) {
                   const escaped = att.filename.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
-                  bodyHtml = bodyHtml.replace(new RegExp(`(["'])[^"']*${escaped}[^"']*(\1)`, 'gi'), `"${srcUrl}"`);
+                  bodyHtml = bodyHtml.replace(new RegExp(`(?:"[^"]*${escaped}[^"]*"|'[^']*${escaped}[^']*')`, 'gi'), `"${srcUrl}"`);
                   bodyHtml = bodyHtml.replace(new RegExp(`src=([^>\s]*)${escaped}([^>\s]*)`, 'gi'), `src="${srcUrl}"`);
                   bodyHtml = bodyHtml.replace(new RegExp(`<\s*${escaped}\s*>`, 'gi'), `<img src="${srcUrl}" alt="${att.filename}" />`);
                   bodyHtml = bodyHtml.replace(new RegExp(`&lt;\s*${escaped}\s*&gt;`, 'gi'), `<img src="${srcUrl}" alt="${att.filename}" />`);

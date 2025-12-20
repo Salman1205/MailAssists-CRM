@@ -1,7 +1,7 @@
 "use client"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+// DropdownMenu removed to simplify rendering and avoid parser issues
 import Logo from "@/components/logo"
 import { useTheme } from "next-themes"
 import { Moon, Sun, Users, User, Bell, Inbox, Megaphone } from "lucide-react"
@@ -40,12 +40,13 @@ interface TopNavProps {
   isConnected: boolean
   userProfile?: UserProfile | null
   currentUser?: { id: string; name: string; role: string } | null
+  userSelected?: boolean
   onLogout?: () => void
   onSwitchUser?: (userId: string) => void
   onSearch?: (query: string) => void
 }
 
-export default function TopNav({ isConnected, userProfile, currentUser, onLogout, onSwitchUser, onSearch }: TopNavProps) {
+export default function TopNav({ isConnected, userProfile, currentUser, userSelected, onLogout, onSwitchUser, onSearch }: TopNavProps) {
   const { resolvedTheme, setTheme } = useTheme()
   const router = useRouter()
   const isDark = resolvedTheme === "dark"
@@ -202,7 +203,7 @@ export default function TopNav({ isConnected, userProfile, currentUser, onLogout
 
   return (
     <>
-    <header className="bg-background/95 backdrop-blur-sm border-b border-border h-16 flex items-center justify-between px-4 md:px-6 gap-2 md:gap-4 overflow-x-hidden min-w-0">
+    <header className="w-full bg-background/95 backdrop-blur-sm border-b border-border h-16 flex items-center justify-between px-4 md:px-6 pr-6 md:pr-8 gap-2 md:gap-4 overflow-x-hidden min-w-0">
       <div className="flex items-center gap-2 md:gap-3 min-w-0">
         <div className="flex-shrink-0 flex items-center gap-2">
           <Logo size="small" />
@@ -275,7 +276,7 @@ export default function TopNav({ isConnected, userProfile, currentUser, onLogout
         </form>
       )}
 
-      <div className="flex items-center gap-2 flex-shrink-0 min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
         {isConnected && (
           <Popover
             open={notificationsOpen}
@@ -403,68 +404,30 @@ export default function TopNav({ isConnected, userProfile, currentUser, onLogout
         )}
 
         {isConnected && (
-          <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2.5 rounded-lg px-3 py-1.5 hover:bg-muted/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-w-full min-w-0 overflow-hidden flex-shrink-0">
-                <div className="hidden text-right sm:block min-w-0 max-w-[120px] md:max-w-[160px]">
-                  <div className="text-sm font-medium text-foreground truncate">
-                    {currentUser?.name || userProfile?.name || "Connected"}
-                  </div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {currentUser?.role 
-                      ? `${currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)}` 
-                      : userProfile?.email || "Loading..."}
-                  </div>
+          <div className="flex items-center max-w-[240px] md:max-w-[320px] min-w-0 justify-end">
+            <button
+              onClick={() => setProfileMenuOpen((v) => !v)}
+              className="flex items-center gap-2.5 rounded-lg px-3 py-1.5 hover:bg-muted/60 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-w-full min-w-0 overflow-hidden"
+            >
+              <div className={(userSelected ? 'block ' : 'hidden sm:block ') + 'text-right min-w-0 max-w-[88px] md:max-w-[140px]'}>
+                <div className="text-sm font-medium text-foreground truncate">
+                  {currentUser?.name || userProfile?.name || "Connected"}
                 </div>
-                <Avatar className="h-8 w-8 flex-shrink-0 border border-border">
-                  {userProfile?.picture ? (
-                    <img src={userProfile.picture} alt={userProfile.name || "User"} className="rounded-full" />
-                  ) : (
-                    <AvatarFallback className="bg-primary text-primary-foreground text-xs font-semibold">
-                      {currentUser?.name 
-                        ? currentUser.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-                        : initials}
-                    </AvatarFallback>
-                  )}
-                </Avatar>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem className="block sm:hidden text-left py-3">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    {currentUser?.name || userProfile?.name || "Connected"}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {currentUser?.role 
-                      ? `${currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)}` 
-                      : userProfile?.email || "Loading..."}
-                  </p>
+                <div className="text-xs text-muted-foreground truncate">
+                  {currentUser?.role ? `${currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)}` : userProfile?.email || "Loading..."}
                 </div>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="block sm:hidden" />
-              {onSwitchUser && (
-                <>
-                  <DropdownMenuItem 
-                    onSelect={(e) => {
-                      e.preventDefault()
-                      fetchUsers()
-                      setShowUserDialog(true)
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <Users className="w-4 h-4 mr-2" />
-                    <span>Switch User</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onLogout} className="text-destructive cursor-pointer">
-                Logout
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </div>
+              <Avatar className="h-8 w-8 flex-shrink-0 border border-border">
+                {userProfile?.picture ? (
+                  <img src={userProfile.picture} alt={userProfile.name || "User"} className="rounded-full" />
+                ) : (
+                  <AvatarFallback className="bg-primary text-primary-foreground text-xs font-semibold">
+                    {currentUser?.name ? currentUser.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase() : initials}
+                  </AvatarFallback>
+                )}
+              </Avatar>
+            </button>
+          </div>
         )}
       </div>
     </header>

@@ -639,6 +639,7 @@ function PageContent() {
             isConnected={isConnected} 
             userProfile={userProfile} 
             currentUser={currentUser}
+            userSelected={Boolean(currentUserId)}
             onLogout={handleLogout}
             onSwitchUser={handleSwitchUser}
             onSearch={(query) => {
