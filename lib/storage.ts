@@ -519,7 +519,13 @@ export async function loadTokens(userEmail?: string | null): Promise<StoredToken
     // Get user email from parameter or session cookie
     let targetUserEmail = userEmail;
     if (!targetUserEmail) {
-      targetUserEmail = await getSessionUserEmail();
+      try {
+        const { cookies } = await import('next/headers');
+        const cookieStore = await cookies();
+        targetUserEmail = cookieStore.get('session_user_email')?.value || null;
+      } catch (err) {
+        targetUserEmail = null;
+      }
     }
 
     let query = supabase

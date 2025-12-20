@@ -5,15 +5,23 @@
 
 import { getOAuth2Client } from './gmail';
 import { loadTokens, saveTokens, StoredTokens } from './storage';
-import { getSessionUserEmail } from './session';
+import { cookies } from 'next/headers';
 
 /**
  * Refresh access token if expired
  * @param userEmail - Optional user email to filter tokens. If not provided, uses session cookie.
  */
 export async function refreshTokenIfNeeded(userEmail?: string | null): Promise<StoredTokens | null> {
-  // Get user email from parameter or session
-  const targetUserEmail = userEmail || await getSessionUserEmail();
+  // Get user email from parameter or session cookie (server-side)
+  let targetUserEmail = userEmail || null;
+  if (!targetUserEmail) {
+    try {
+      const cookieStore = await cookies();
+      targetUserEmail = cookieStore.get('session_user_email')?.value || null;
+    } catch {
+      targetUserEmail = null;
+    }
+  }
   const tokens = await loadTokens(targetUserEmail);
   
   if (!tokens || !tokens.refresh_token) {
