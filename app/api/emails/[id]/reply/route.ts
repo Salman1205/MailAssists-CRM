@@ -1,29 +1,18 @@
 /**
- * Send a previously generated draft as a reply via Gmail
+ * Reply sending is intentionally disabled in this build (read-only mode).
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-
-function stripHtml(html: string) {
-  if (!html) return ''
-  return html.replace(/<style[^>]*>.*?<\/style>/gis, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-}
+import { NextRequest, NextResponse } from 'next/server'
 
 type RouteContext =
   | { params: { id: string } }
-  | { params: Promise<{ id: string }> };
+  | { params: Promise<{ id: string }> }
+
+export async function POST(_request: NextRequest, _context: RouteContext) {
   return NextResponse.json(
     { error: 'Reply sending is disabled in read-only mode' },
     { status: 501 }
-  );
-    return NextResponse.json(
-      {
-        error: 'Failed to send reply',
-        details: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 }
-    );
-  }
+  )
 }
 
 
